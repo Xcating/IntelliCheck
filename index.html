@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>模型回答评估</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        textarea {
+            width: 100%;
+            max-width: 800px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            background: #f9f9f9;
+            max-width: 800px;
+        }
+        .safe {
+            color: green;
+            font-weight: bold;
+        }
+        .moderate {
+            color: orange;
+            font-weight: bold;
+        }
+        .danger {
+            color: red;
+            font-weight: bold;
+        }
+        label {
+            font-weight: bold;
+        }
+        button {
+            margin-top: 10px;
+            padding: 8px 16px;
+            font-size: 16px;
+        }
+        .prompt {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px dashed #888;
+            background-color: #f0f0f0;
+            max-width: 800px;
+        }
+        pre {
+            background-color: #eee;
+            padding: 10px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+<h1>模型回答评估</h1>
+<!-- 添加提示信息 -->
+<div class="prompt">
+    <p>提示：请使用 <strong>o3-mini (普通版本，非 high版本)</strong> 提问以下问题：</p>
+    <pre><code id="questionText">已知过点 $A(-1, 0)$ 、 $B(1, 0)$ 两点的动抛物线的准线始终与圆 $x^2 + y^2 = 9$ 相切，该抛物线焦点 $P$ 的轨迹是某圆锥曲线 $E$ 的一部分。&lt;br&gt;(1) 求曲线 $E$ 的标准方程；&lt;br&gt;(2) 已知点 $C(-3, 0)$ ， $D(2, 0)$ ，过点 $D$ 的动直线与曲线 $E$ 相交于 $M$ 、 $N$ ，设 $\triangle CMN$ 的外心为 $Q$ ， $O$ 为坐标原点，问：直线 $OQ$ 与直线 $MN$ 的斜率之积是否为定值，如果为定值，求出该定值；如果不是定值，则说明理由。</code></pre>
+    <button onclick="copyQuestion()">复制问题</button>
+</div>
+<div style="margin-top:10px;">
+    <label for="thinkingText">思考过程 (请确保其中包含思考时间，例如 “1m 19s” 或 “1分钟19秒”):</label><br>
+    <textarea id="thinkingText" rows="6" placeholder="在此粘贴模型的思考过程..."></textarea>
+</div>
+<div style="margin-top:10px;">
+    <label for="answerText">回答内容 (请包含第一问与第二问的答案):</label><br>
+    <textarea id="answerText" rows="6" placeholder="在此粘贴模型的完整回答..."></textarea>
+</div>
+<button onclick="evaluateResponse()">评估</button>
+<div id="result" class="result"></div>
+<script>
+    function copyQuestion() {
+        const questionText = document.getElementById('questionText').innerText;
+        navigator.clipboard.writeText(questionText).then(() => {
+            alert('问题已复制到剪贴板！');
+        }).catch(err => {
+            console.error('复制失败:', err);
+        });
+    }
+
+    function evaluateResponse() {
+        const thinkingText = document.getElementById('thinkingText').value.trim();
+        const answerText = document.getElementById('answerText').value.trim();
+        // --- 判断第一问是否正确 ---
+        let q1_correct = false;
+        // 用正则检测可能的 LaTeX 或普通写法
+        // 注意：使用 [\s\S]* 模拟 DOTALL 模式
+        const pattern_q1 = new RegExp('(\\\\frac\\{x\\^2\\}\\{9\\}|x\\^2\\s*/\\s*9)[\\s\\S]*?(\\\\frac\\{y\\^2\\}\\{8\\}|y\\^2\\s*/\\s*8)[\\s\\S]*?= *1', 'i');
+        if (pattern_q1.test(answerText)) {
+            q1_correct = true;
+        }
+        // 若正则未匹配，尝试简单判断关键字
+        if (!q1_correct) {
+            if ((answerText.includes("x^2/9") || answerText.includes("x²/9")) &&
+                (answerText.includes("y^2/8") || answerText.includes("y²/8")) &&
+                answerText.replace(/\s/g, "").includes("=1")) {
+                q1_correct = true;
+            }
+        }
+        const q1_score = q1_correct ? 20 : 0;
+        // --- 判断第二问是否正确 ---
+        let q2_correct = false;
+        if (answerText.indexOf("-5") !== -1) {
+            q2_correct = true;
+        }
+        const q2_score = q2_correct ? 70 : 0;
+        // --- 提取思考过程中的思考时间 ---
+        let thinking_time_seconds = 0;
+        let match;
+        // 尝试英文格式，如 "1m 19s" 或 "1min 19s"
+        match = thinkingText.match(/(\d+)\s*m(?:in(?:ute)?)?\s*(\d+)\s*s(?:ec(?:ond)?)?/i);
+        if (match) {
+            const minutes = parseInt(match[1], 10);
+            const seconds = parseInt(match[2], 10);
+            thinking_time_seconds = minutes * 60 + seconds;
+        } else {
+            // 尝试中文格式，如 "1分钟19秒"
+            match = thinkingText.match(/(\d+)\s*分钟\s*(\d+)\s*秒/);
+            if (match) {
+                const minutes = parseInt(match[1], 10);
+                const seconds = parseInt(match[2], 10);
+                thinking_time_seconds = minutes * 60 + seconds;
+            } else {
+                // 尝试新格式，如 "持续 59 秒" 或任意包含秒数的格式
+                match = thinkingText.match(/(\d+)\s*秒/);
+                if (match) {
+                    thinking_time_seconds = parseInt(match[1], 10);
+                }
+            }
+        }
+        if (thinking_time_seconds <= 0) {
+            document.getElementById('result').innerHTML = '<p style="color:red;">错误：未找到思考时间，请检查输入是否包含有效的思考时间（格式示例：1m 19s 或 1分钟19秒）！</p>';
+            return;
+        }
+        // 思考过程得分：最长 4 分钟（240秒）对应 10 分，时间越短得分按比例降低
+        const thinking_score = (Math.min(thinking_time_seconds, 240) / 240) * 10;
+        // --- 计算总得分 ---
+        const total_score = q1_score + q2_score + thinking_score;
+        // --- 计算模型“降智”可能性 ---
+        // 降智可能性 = (100 - 模型获得的总分) / 100
+        const dumbness_probability = (100 - total_score) / 100;
+        const dumbness_percentage = (dumbness_probability * 100).toFixed(2) + '%';
+        // --- 判断模型降智的风险等级 ---
+        let risk_level = "";
+        let risk_class = "";
+        if (dumbness_probability <= 0.08) {
+            risk_level = "模型降智的可能为极低 [安全-未降智]";
+            risk_class = "safe";
+        } else if (dumbness_probability <= 0.80) {
+            risk_level = "模型降智的可能为中等 [一般-中等降智]";
+            risk_class = "moderate";
+        } else {
+            risk_level = "模型降智的可能为极高 [高危-已降智]";
+            risk_class = "danger";
+        }
+        // --- 显示结果 ---
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = `
+        <p>模型总得分： <strong>${total_score.toFixed(2)}</strong> 分</p>
+        <p>降智概率： <strong>${dumbness_percentage}</strong></p>
+        <p class="${risk_class}">${risk_level}</p>
+      `;
+    }
+</script>
+</body>
+</html>
