@@ -103,10 +103,16 @@
         const q1_score = q1_correct ? 20 : 0;
         // --- 判断第二问是否正确 ---
         let q2_correct = false;
-        if (answerText.indexOf("-5") !== -1) {
-            q2_correct = true;
+        const hasNegativeFive = answerText.indexOf("-5") !== -1;
+        const hasNotConstantValue = answerText.includes("不是定值");
+    
+        if (hasNegativeFive && hasNotConstantValue) {
+            q2_correct = true; // 同时有-5和“不是定值”
+        } else if (hasNegativeFive) {
+            q2_correct = true; // 只有-5
         }
-        const q2_score = q2_correct ? 70 : 0;
+        
+        const q2_score = (hasNegativeFive && hasNotConstantValue) ? 10 : (hasNegativeFive ? 70 : 0);
         // --- 提取思考过程中的思考时间 ---
         let thinking_time_seconds = 0;
         let match;
